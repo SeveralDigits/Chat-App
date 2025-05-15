@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat Room</title>
+  <style>
+    :root {
+      --bg: #fff;
+      --text: #000;
+      --input: #f5f5f5;
+      --border: #ccc;
+      --sys: #666;
+    }
+
+    body.dark {
+      --bg: #121212;
+      --text: #f0f0f0;
+      --input: #222;
+      --border: #555;
+      --sys: #aaa;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: auto;
+      padding: 1rem;
+    }
+
+    #login, #chat {
+      display: none;
+      border: 1px solid var(--border);
+      padding: 1rem;
+      border-radius: 5px;
+    }
+
+    #chat { display: block; }
+
+    #messages {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      padding: 0.5rem;
+      margin-bottom: 1rem;
+      background: var(--input);
+    }
+
+    #input {
+      width: 100%;
+      padding: 0.5rem;
+    }
+
+    .sys { font-style: italic; color: var(--sys); }
+    .user-entry { margin-right: 8px; }
+
+    button { margin: 0.2rem; }
+  </style>
+</head>
+<body>
+  <div id="login">
+    <h2>Login</h2>
+    <input id="username" placeholder="Username" /><br /><br />
+    <input id="pin" placeholder="PIN" type="password" /><br /><br />
+    <button onclick="login()">Enter Chat</button>
+  </div>
+
+  <div id="chat" style="display:none;">
+    <button onclick="toggleDarkMode()">Dark Mode</button>
+    <button onclick="toggleMute()">Mute</button>
+    <button onclick="clearChat()">Clear Chat</button>
+    <div id="status"></div>
+    <div id="userList"></div>
+    <div id="messages"></div>
+    <input id="input" placeholder="Message or /command" onkeydown="handleKey(event)" />
+  </div>
+
+  <script>
+    const ws = new WebSocket(location.origin.replace(/^http/, 'ws'));
+    const loginBox = document.getElementById('login');
+    const chatBox = document.getElementById('chat');
+    const messages = document.getElementById('messages');
+    const input = document.getElementById('input');
+    const userList = document.getElementById('userList');
+    const status = document.getElementById('status');
+
+    let username = "";
+    let color = getRandomColor();
+    let muted = false;
+
+    const joinSound = new Audio('join.mp3');
+    const msgSound = new Audio('message.mp3');
+
+    function toggleDarkMode() {
+      document.body.classList.toggle('dark');
+    }
+
+    function toggleMute() {
+      muted = !muted;
+      alert("Sound " + (muted ? "muted" : "unmuted"));
+    }
+
+    function tryPlay(sound) {
+      if (!muted) sound.play().catch(() => {});
+    }
+
+    function getRandomColor() {
+      return '#' + Math.floor(Math.random() * 0xffffff).toString(16);
+    }
+
+    function showMessage(text, color = null, isSys = false) {
+      const el = document.createElement('div');
+      el.textContent = text;
+      if (isSys) el.className = 'sys';
+      if (color) el.style.color = color;
+      messages.appendChild(el);
+      messages.scrollTop = messages.scrollHeight;
+      tryPlay(isSys ? joinSound : msgSound);
+    }
+
+    function handleKey(e) {
+      if (e.key === 'Enter') {
+        const text = input.value.trim();
+        if (!text) return;
+        if (text.startsWith('/color ')) {
+          color = text.split(' ')[1];
+          ws.send(JSON.stringify({ type: 'colorchange', color }));
+        } else if (text.startsWith('/pm ')) {
+          const [_, to, ...msg] = text.split(' ');
+          ws.send(JSON.stringify({ type: 'pm', to, message: msg.join(' ') }));
+        } else if (text === '/help') {
+          showMessage("Commands: /color #hex /pm user msg /help /emojis", null, true);
+        } else if (text === '/emojis') {
+          showMessage("😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😌 😍 😘", null, true);
+        } else {
+          ws.send(JSON.stringify({ type: 'message', message: text }));
+          showMessage(`${username}: ${text}`, color);
+        }
+        input.value = '';
+      }
+    }
+
+    function login() {
+      const valid = { alex: '0228', adam: '1234' };
+      const u = document.getElementById('username').value;
+      const p = document.getElementById('pin').value;
+      if (valid[u] === p) {
+        username = u;
+        loginBox.style.display = 'none';
+        chatBox.style.display = 'block';
+        status.textContent = `Logged in as ${u}`;
+        ws.send(JSON.stringify({ type: 'login', username, color }));
+      } else {
+        alert('Invalid credentials.');
+      }
+    }
+
+    function clearChat() {
+      if (confirm("Clear chat for everyone?")) {
+        ws.send(JSON.stringify({ type: 'clear' }));
+        messages.innerHTML = '';
+      }
+    }
+
+    ws.onmessage = e => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'message') showMessage(`${msg.username}: ${msg.message}`, msg.color);
+      else if (msg.type === 'system') showMessage(msg.message, null, true);
+      else if (msg.type === 'userlist') {
+        userList.innerHTML = msg.users.map(u => `<span class="user-entry" style="color:${u.color}">${u.username}</span>`).join('');
+      }
+    };
+  </script>
+</body>
+</html>
