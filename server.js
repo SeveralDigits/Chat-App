@@ -1,91 +1,132 @@
-const express = require('express');
-const http = require('http');
-const fs = require('fs');
 const WebSocket = require('ws');
-const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcrypt');
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ port: 3000 });
 
-const chatLogPath = path.join(__dirname, 'chatlogs.txt');
-let clients = [];
+const db = new sqlite3.Database('./chat.db');
 
-function broadcast(msg, exclude = null) {
-  const data = JSON.stringify(msg);
-  clients.forEach(c => {
-    if (c.ws !== exclude && c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(data);
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password_hash TEXT,
+    color TEXT DEFAULT '#000000'
+  )`);
+});
+
+let clients = new Map(); // ws -> {username, color}
+
+function broadcast(data) {
+  const str = JSON.stringify(data);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(str);
     }
   });
 }
 
-function updateUserList() {
-  const list = clients.map(c => ({ username: c.username, color: c.color }));
-  broadcast({ type: 'userlist', users: list });
+function sendUserList() {
+  const users = [];
+  clients.forEach(({ username, color }) => {
+    users.push({ username, color });
+  });
+  broadcast({ type: 'userlist', users });
 }
 
-function saveMessage(line) {
-  fs.appendFile(chatLogPath, line + '\n', () => {});
-}
+wss.on('connection', (ws) => {
+  ws.isAuthorized = false;
 
-function loadChatLog() {
-  if (fs.existsSync(chatLogPath)) {
-    return fs.readFileSync(chatLogPath, 'utf-8').trim().split('\n');
-  }
-  return [];
-}
-
-wss.on('connection', ws => {
-  let currentUser = { ws, username: 'Unknown', color: '#000000' };
-  clients.push(currentUser);
-
-  // Send chat log to user
-  const history = loadChatLog();
-  history.forEach(line => ws.send(JSON.stringify({ type: 'system', message: line })));
-
-  ws.on('message', data => {
+  ws.on('message', async (message) => {
+    let msg;
     try {
-      const msg = JSON.parse(data);
-      if (msg.type === 'login') {
-        currentUser.username = msg.username;
-        currentUser.color = msg.color || '#000000';
-        broadcast({ type: 'system', message: `${msg.username} joined.` });
-        updateUserList();
-      } else if (msg.type === 'colorchange') {
-        currentUser.color = msg.color;
-        updateUserList();
-      } else if (msg.type === 'message') {
-        const line = `${currentUser.username}: ${msg.message}`;
-        broadcast({ type: 'message', username: currentUser.username, message: msg.message, color: currentUser.color });
-        saveMessage(line);
-      } else if (msg.type === 'pm') {
-        const toUser = clients.find(u => u.username === msg.to);
-        if (toUser) {
-          const pmText = `[PM from ${currentUser.username}]: ${msg.message}`;
-          toUser.ws.send(JSON.stringify({ type: 'message', username: currentUser.username, message: `[PM] ${msg.message}`, color: currentUser.color }));
-          ws.send(JSON.stringify({ type: 'message', username: currentUser.username, message: `[PM to ${msg.to}] ${msg.message}`, color: currentUser.color }));
-        } else {
-          ws.send(JSON.stringify({ type: 'system', message: `User ${msg.to} not found.` }));
-        }
-      } else if (msg.type === 'clear') {
-        fs.writeFileSync(chatLogPath, '');
-        broadcast({ type: 'system', message: 'Chat log was cleared.' });
+      msg = JSON.parse(message);
+    } catch {
+      ws.send(JSON.stringify({ type: 'system', message: 'Invalid JSON' }));
+      return;
+    }
+
+    if (msg.type === 'register') {
+      const { username, password } = msg;
+      if (!username || !password) {
+        ws.send(JSON.stringify({ type: 'register', success: false, message: 'Missing username or password' }));
+        return;
       }
-    } catch (err) {
-      console.error('Invalid message:', data);
+
+      db.get('SELECT username FROM users WHERE username = ?', [username], async (err, row) => {
+        if (err) {
+          ws.send(JSON.stringify({ type: 'register', success: false, message: 'Database error' }));
+          return;
+        }
+        if (row) {
+          ws.send(JSON.stringify({ type: 'register', success: false, message: 'Username already exists' }));
+          return;
+        }
+
+        const hashed = await bcrypt.hash(password, 10);
+        db.run('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username, hashed], (err) => {
+          if (err) {
+            ws.send(JSON.stringify({ type: 'register', success: false, message: 'Database error' }));
+          } else {
+            ws.send(JSON.stringify({ type: 'register', success: true, message: 'Registration successful!' }));
+          }
+        });
+      });
+    } else if (msg.type === 'login') {
+      const { username, password } = msg;
+      if (!username || !password) {
+        ws.send(JSON.stringify({ type: 'login', success: false, message: 'Missing username or password' }));
+        return;
+      }
+
+      db.get('SELECT username, password_hash, color FROM users WHERE username = ?', [username], async (err, row) => {
+        if (err || !row) {
+          ws.send(JSON.stringify({ type: 'login', success: false, message: 'Invalid username or password' }));
+          return;
+        }
+
+        const match = await bcrypt.compare(password, row.password_hash);
+        if (match) {
+          ws.isAuthorized = true;
+          clients.set(ws, { username: row.username, color: row.color || '#000000' });
+          ws.send(JSON.stringify({ type: 'login', success: true, color: row.color || '#000000' }));
+          broadcast({ type: 'system', message: `${row.username} has joined.` });
+          sendUserList();
+        } else {
+          ws.send(JSON.stringify({ type: 'login', success: false, message: 'Invalid username or password' }));
+        }
+      });
+    } else {
+      // Only allow further actions if authorized
+      if (!ws.isAuthorized) {
+        ws.send(JSON.stringify({ type: 'system', message: 'Please login first.' }));
+        return;
+      }
+
+      if (msg.type === 'message') {
+        const user = clients.get(ws);
+        if (!user) return;
+        broadcast({ type: 'message', username: user.username, message: msg.message, color: user.color });
+      } else if (msg.type === 'colorchange') {
+        const user = clients.get(ws);
+        if (!user) return;
+        user.color = msg.color;
+        // Update DB color
+        db.run('UPDATE users SET color = ? WHERE username = ?', [msg.color, user.username]);
+        clients.set(ws, user);
+        sendUserList();
+      }
     }
   });
 
   ws.on('close', () => {
-    clients = clients.filter(c => c.ws !== ws);
-    broadcast({ type: 'system', message: `${currentUser.username} left.` });
-    updateUserList();
+    const user = clients.get(ws);
+    if (user) {
+      broadcast({ type: 'system', message: `${user.username} has left.` });
+      clients.delete(ws);
+      sendUserList();
+    }
   });
 });
 
-app.use(express.static('public'));
-
-server.listen(3000, () => {
-  console.log('Server running at http://localhost:3000');
-});
+console.log('Server running on ws://localhost:3000');
