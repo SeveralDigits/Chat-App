@@ -1,3 +1,5 @@
+All Database files will be created on first startup and all passwords and chatlogs will be encrypted seperately
+
 INSTALLATION
 
 ##BASH##
