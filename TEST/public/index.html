@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat App</title>
+<link id="favicon" rel="icon" type="image/x-icon" href="favicon.ico">
+<style>
+  :root {
+    --bg-light: #f0f0f0;
+    --bg-dark: #121212;
+    --text-light: #000;
+    --text-dark: #eee;
+    --msg-bg-light: #fff;
+    --msg-bg-dark: #222;
+    --private-bg-light: #ffeedd;
+    --private-bg-dark: #553311;
+    --system-msg-light: #777;
+    --system-msg-dark: #aaa;
+  }
+
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    background: var(--bg-light);
+    color: var(--text-light);
+    transition: background-color 0.5s ease, color 0.5s ease;
+  }
+
+  body.dark {
+    background: var(--bg-dark);
+    color: var(--text-dark);
+  }
+
+  #loginForm, #registerForm, #chatInterface {
+    max-width: 600px;
+    margin: 30px auto;
+    padding: 20px;
+    background: var(--msg-bg-light);
+    border-radius: 8px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    transition: background-color 0.5s ease, color 0.5s ease;
+  }
+
+  body.dark #loginForm,
+  body.dark #registerForm,
+  body.dark #chatInterface {
+    background: var(--msg-bg-dark);
+    color: var(--text-dark);
+    box-shadow: 0 0 10px rgba(255,255,255,0.1);
+  }
+
+  #chatInterface {
+    display: none;
+  }
+
+  #messages {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background: var(--msg-bg-light);
+    transition: background-color 0.5s ease, border-color 0.5s ease;
+  }
+
+  body.dark #messages {
+    background: var(--msg-bg-dark);
+    border-color: #444;
+  }
+
+  .message {
+    margin-bottom: 8px;
+  }
+
+  .message .username {
+    font-weight: bold;
+    margin-right: 5px;
+  }
+
+  .message.private {
+    background: var(--private-bg-light);
+    padding: 5px;
+    border-radius: 4px;
+    transition: background-color 0.5s ease;
+  }
+
+  body.dark .message.private {
+    background: var(--private-bg-dark);
+  }
+
+  .system-message {
+    color: var(--system-msg-light);
+    font-style: italic;
+    transition: color 0.5s ease;
+  }
+
+  body.dark .system-message {
+    color: var(--system-msg-dark);
+  }
+
+  #usersList {
+    margin-top: 15px;
+    padding-left: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  #usersList span {
+    color: inherit;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #ddd;
+    transition: background-color 0.5s ease, color 0.5s ease;
+    font-size: 0.9em;
+  }
+
+  body.dark #usersList span {
+    background: #333;
+    color: var(--text-dark);
+  }
+
+  #inputMsg {
+    width: 70%;
+    padding: 8px;
+  }
+
+  #sendBtn, #sendImageBtn {
+    padding: 8px 12px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  .error { color: red; }
+  .success { color: green; }
+
+  #darkModeToggle {
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid currentColor;
+    padding: 6px 12px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    float: right;
+    font-size: 0.9em;
+  }
+
+  #wallpaperSelect {
+    margin-top: 10px;
+    padding: 5px;
+  }
+</style>
+</head>
+<body>
+
+<div id="loginForm">
+  <h2>Login
+    <button id="darkModeToggle" title="Toggle Dark Mode">🌙</button>
+  </h2>
+  <input type="text" id="loginUsername" placeholder="Username" /><br /><br />
+  <input type="password" id="loginPassword" placeholder="Password" /><br /><br />
+  <button id="loginBtn">Login</button>
+  <p>Don't have an account? <button id="showRegisterBtn">Register</button></p>
+  <p id="loginMsg" class="error"></p>
+</div>
+
+<div id="registerForm" style="display:none;">
+  <h2>Register
+    <button id="darkModeToggleRegister" title="Toggle Dark Mode">🌙</button>
+  </h2>
+  <input type="text" id="registerUsername" placeholder="Username" /><br /><br />
+  <input type="password" id="registerPassword" placeholder="Password" /><br /><br />
+  <button id="registerBtn">Register</button>
+  <p>Already have an account? <button id="showLoginBtn">Login</button></p>
+  <p id="registerMsg" class="error"></p>
+</div>
+
+<div id="chatInterface">
+  <h2>Chat Room
+    <button id="darkModeToggleChat" title="Toggle Dark Mode" style="float:right; margin-top: -5px;">🌙</button>
+  </h2>
+  <ul id="usersList"></ul>
+  <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+  <input type="text" id="inputMsg" placeholder="Type a message or command" autocomplete="off" />
+  <button id="sendBtn">Send</button>
+  <button id="sendImageBtn">📷</button>
+  <input type="file" id="imageInput" accept="image/*" style="display:none;">
+  
+  <select id="wallpaperSelect">
+    <option value="default">Default</option>
+    <option value="solid-blue">Solid Blue</option>
+    <option value="solid-black">Solid Black</option>
+    <option value="gradient">Gradient</option>
+    <option value="custom-image">Custom Image</option>
+  </select>
+  <input type="file" id="bgImageInput" accept="image/*" style="display:none;">
+
+  <p><small>Type /help for a list of commands</small></p>
+  <p id="systemMsg" class="system-message"></p>
+</div>
+
+<script>
+  const WS_PORT = 3000;
+  const ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}`);
+
+  const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const chatInterface = document.getElementById('chatInterface');
+
+  const loginUsername = document.getElementById('loginUsername');
+  const loginPassword = document.getElementById('loginPassword');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginMsg = document.getElementById('loginMsg');
+  const showRegisterBtn = document.getElementById('showRegisterBtn');
+
+  const registerUsername = document.getElementById('registerUsername');
+  const registerPassword = document.getElementById('registerPassword');
+  const registerBtn = document.getElementById('registerBtn');
+  const registerMsg = document.getElementById('registerMsg');
+  const showLoginBtn = document.getElementById('showLoginBtn');
+
+  const messagesDiv = document.getElementById('messages');
+  const inputMsg = document.getElementById('inputMsg');
+  const sendBtn = document.getElementById('sendBtn');
+  const sendImageBtn = document.getElementById('sendImageBtn');
+  const imageInput = document.getElementById('imageInput');
+  const usersList = document.getElementById('usersList');
+  const systemMsg = document.getElementById('systemMsg');
+
+  const wallpaperSelect = document.getElementById('wallpaperSelect');
+  const bgImageInput = document.getElementById('bgImageInput');
+
+  const darkModeToggles = [
+    document.getElementById('darkModeToggle'),
+    document.getElementById('darkModeToggleRegister'),
+    document.getElementById('darkModeToggleChat')
+  ];
+
+  let myUsername = null;
+  let myColor = '#000000';
+
+  // 🔹 Favicon notification
+  let windowFocused = true;
+  let unread = 0;
+  const favicon = document.getElementById('favicon');
+  window.onfocus = () => { windowFocused = true; unread = 0; favicon.href = "favicon.ico"; };
+  window.onblur = () => { windowFocused = false; };
+
+  // 🔹 Dark mode
+  function setDarkMode(enabled) {
+    if (enabled) {
+      document.body.classList.add('dark');
+      darkModeToggles.forEach(btn => btn.textContent = '☀️');
+      localStorage.setItem('darkMode', 'true');
+    } else {
+      document.body.classList.remove('dark');
+      darkModeToggles.forEach(btn => btn.textContent = '🌙');
+      localStorage.setItem('darkMode', 'false');
+    }
+  }
+  darkModeToggles.forEach(btn => btn.addEventListener('click', () => setDarkMode(!document.body.classList.contains('dark'))));
+  if (localStorage.getItem('darkMode') === 'true') setDarkMode(true);
+
+  // 🔹 Message functions
+  function addMessage(username, text, color, isPrivate = false, fromSelf = false, isImage = false) {
+    const div = document.createElement('div');
+    div.classList.add('message');
+    if (isPrivate) div.classList.add('private');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.classList.add('username');
+    nameSpan.textContent = username + (fromSelf ? ' (you)' : '') + ':';
+    nameSpan.style.color = color || '#000';
+    div.appendChild(nameSpan);
+
+    if (isImage) {
+      const img = document.createElement('img');
+      img.src = text;
+      img.style.maxWidth = "200px";
+      img.style.borderRadius = "8px";
+      div.appendChild(img);
+    } else {
+      const textSpan = document.createElement('span');
+      textSpan.textContent = ' ' + text;
+      div.appendChild(textSpan);
+    }
+
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+    if (!windowFocused) {
+      unread++;
+      favicon.href = "favicon-alert.ico";
+    }
+  }
+
+  function addSystemMessage(text) {
+    const div = document.createElement('div');
+    div.classList.add('system-message');
+    div.textContent = text;
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  function updateUsersList(users) {
+    usersList.innerHTML = '';
+    users.forEach(user => {
+      const span = document.createElement('span');
+      span.textContent = user.username;
+      span.style.color = user.color || '#000';
+      usersList.appendChild(span);
+    });
+  }
+
+  // 🔹 WebSocket handlers
+  ws.onopen = () => console.log('WebSocket connected');
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'register') {
+      if (data.success) {
+        registerMsg.textContent = '';
+        alert('Registration successful! Please log in.');
+        registerForm.style.display = 'none';
+        loginForm.style.display = 'block';
+      } else registerMsg.textContent = data.message;
+    } else if (data.type === 'login') {
+      if (data.success) {
+        loginMsg.textContent = '';
+        myUsername = loginUsername.value.trim();
+        myColor = data.color || '#000000';
+        loginForm.style.display = 'none';
+        chatInterface.style.display = 'block';
+        systemMsg.textContent = `Logged in as ${myUsername}`;
+      } else loginMsg.textContent = data.message;
+    } else if (data.type === 'message') {
+      addMessage(data.username, data.message, data.color);
+    } else if (data.type === 'image') {
+      addMessage(data.username, data.imageUrl, data.color, false, false, true);
+    } else if (data.type === 'system') {
+      addSystemMessage(data.message);
+    } else if (data.type === 'userlist') {
+      updateUsersList(data.users);
+    } else if (data.type === 'history') {
+      data.messages.forEach(msg => {
+        const isPrivate = !!msg.recipient;
+        const fromSelf = (msg.username === myUsername);
+        addMessage(msg.username, msg.message, msg.color, isPrivate, fromSelf);
+      });
+    } else if (data.type === 'private_message') {
+      addMessage(data.from, data.message, data.color, true, false);
+    } else if (data.type === 'private_message_sent') {
+      addMessage(myUsername, `(To ${data.to}): ${data.message}`, myColor, true, true);
+    }
+  };
+  ws.onerror = (err) => { console.error('WebSocket error:', err); systemMsg.textContent = 'Connection error. Please reload the page.'; };
+
+  // 🔹 Auth handlers
+  loginBtn.onclick = () => { const username = loginUsername.value.trim(); const password = loginPassword.value; if (!username || !password) return loginMsg.textContent = 'Please enter username and password.'; ws.send(JSON.stringify({ type: 'login', username, password })); };
+  showRegisterBtn.onclick = () => { loginForm.style.display = 'none'; registerForm.style.display = 'block'; loginMsg.textContent = ''; registerMsg.textContent = ''; };
+  registerBtn.onclick = () => { const username = registerUsername.value.trim(); const password = registerPassword.value; if (!username || !password) return registerMsg.textContent = 'Please enter username and password.'; ws.send(JSON.stringify({ type: 'register', username, password })); };
+  showLoginBtn.onclick = () => { registerForm.style.display = 'none'; loginForm.style.display = 'block'; registerMsg.textContent = ''; loginMsg.textContent = ''; };
+
+  // 🔹 Chat send handlers
+  sendBtn.onclick = () => sendMessage();
+  inputMsg.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+  function sendMessage() { const message = inputMsg.value.trim(); if (!message) return; ws.send(JSON.stringify({ type: 'message', message })); inputMsg.value = ''; }
+
+  // 🔹 Image send
+  sendImageBtn.addEventListener('click', () => imageInput.click());
+  imageInput.addEventListener('change', () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { ws.send(JSON.stringify({ type: 'image', imageUrl: reader.result })); };
+    reader.readAsDataURL(file);
+  });
+
+  // 🔹 Wallpaper customization
+  wallpaperSelect.addEventListener('change', (e) => {
+    switch (e.target.value) {
+      case "solid-blue": document.body.style.background = "#3b82f6"; break;
+      case "solid-black": document.body.style.background = "#000"; break;
+      case "gradient": document.body.style.background = "linear-gradient(135deg, #3b82f6, #9333ea)"; break;
+      case "custom-image": bgImageInput.click(); break;
+      default: document.body.style.background = ""; break;
+    }
+  });
+  bgImageInput.addEventListener('change', () => {
+    const file = bgImageInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      document.body.style.background = `url(${reader.result}) no-repeat center center fixed`;
+      document.body.style.backgroundSize = "cover";
+    };
+    reader.readAsDataURL(file);
+  });
+</script>
+
+</body>
+</html>
